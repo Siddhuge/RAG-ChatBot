@@ -52,6 +52,19 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
+      # Diagnose credential problems clearly (never prints the values).
+      - name: Verify Docker Hub secrets
+        if: github.event_name != 'pull_request'
+        env:
+          U: ${{ secrets.DOCKERHUB_USERNAME }}
+          T: ${{ secrets.DOCKERHUB_TOKEN }}
+        run: |
+          [ -n "$U" ] || { echo "::error::DOCKERHUB_USERNAME secret is empty/unset — check the secret NAME is exactly DOCKERHUB_USERNAME"; exit 1; }
+          [ -n "$T" ] || { echo "::error::DOCKERHUB_TOKEN secret is empty/unset — check the secret NAME is exactly DOCKERHUB_TOKEN"; exit 1; }
+          if printf '%s' "$U" | grep -q '[[:space:]]'; then echo "::error::DOCKERHUB_USERNAME contains whitespace/newline — recreate the secret"; exit 1; fi
+          if printf '%s' "$T" | grep -q '[[:space:]]'; then echo "::error::DOCKERHUB_TOKEN contains whitespace/newline — recreate the secret (this causes 'malformed Authorization header')"; exit 1; fi
+          echo "Secrets present and clean (username chars: ${#U}, token chars: ${#T})"
+
       # Only authenticate when we intend to push (skips on PRs).
       - name: Log in to Docker Hub
         if: github.event_name != 'pull_request'
