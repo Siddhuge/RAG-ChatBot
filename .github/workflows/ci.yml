@@ -58,18 +58,36 @@ jobs:
       # A trailing newline on the token is the classic cause of
       # "malformed HTTP Authorization header" — trimming makes the workflow
       # robust regardless of how the secret was pasted.
-      - name: Log in to Docker Hub
+      - name: Diagnose & log in to Docker Hub
         id: prep
         env:
           U: ${{ secrets.DOCKERHUB_USERNAME }}
           T: ${{ secrets.DOCKERHUB_TOKEN }}
         run: |
-          U=$(printf '%s' "$U" | tr -d '[:space:]')
-          T=$(printf '%s' "$T" | tr -d '[:space:]')
-          [ -n "$U" ] || { echo "::error::DOCKERHUB_USERNAME secret is empty/unset — check the secret NAME is exactly DOCKERHUB_USERNAME"; exit 1; }
-          [ -n "$T" ] || { echo "::error::DOCKERHUB_TOKEN secret is empty/unset — check the secret NAME is exactly DOCKERHUB_TOKEN"; exit 1; }
-          printf '%s' "$T" | docker login -u "$U" --password-stdin
-          echo "image=$U/rag-chatbot" >> "$GITHUB_OUTPUT"
+          # Unambiguous whitespace strip (CR/LF/tab/space anywhere).
+          Uc="${U//[$'\r\n\t ']/}"
+          Tc="${T//[$'\r\n\t ']/}"
+
+          # --- Safe diagnostics: NO secret values are printed, only facts ---
+          echo "username length (raw=${#U}, trimmed=${#Uc})"
+          echo "token length    (raw=${#T}, trimmed=${#Tc})"
+          case "$Uc" in *@*) echo "::warning::DOCKERHUB_USERNAME looks like an EMAIL — use your Docker Hub username, not email";; esac
+          case "$Uc" in *[A-Z]*) echo "::warning::DOCKERHUB_USERNAME has UPPERCASE — Docker Hub usernames are lowercase";; esac
+          case "$Tc" in
+            dckr_pat_*) echo "token format: starts with dckr_pat_ (valid Docker Hub PAT shape)";;
+            sk-ant-*)   echo "::error::DOCKERHUB_TOKEN starts with sk-ant- — that's an ANTHROPIC key, not a Docker Hub token";;
+            ghp_*|github_pat_*) echo "::error::DOCKERHUB_TOKEN looks like a GitHub token, not a Docker Hub token";;
+            *) echo "::warning::DOCKERHUB_TOKEN does NOT start with dckr_pat_ — may be the wrong value or an old-style token";;
+          esac
+          weird=$(printf '%s' "$Tc" | tr -d 'A-Za-z0-9_-' | wc -c)
+          echo "token chars outside [A-Za-z0-9_-]: $weird"
+
+          [ -n "$Uc" ] || { echo "::error::DOCKERHUB_USERNAME secret is empty/unset — check the secret NAME"; exit 1; }
+          [ -n "$Tc" ] || { echo "::error::DOCKERHUB_TOKEN secret is empty/unset — check the secret NAME"; exit 1; }
+
+          echo "--- attempting docker login ---"
+          printf '%s' "$Tc" | docker login -u "$Uc" --password-stdin
+          echo "image=$Uc/rag-chatbot" >> "$GITHUB_OUTPUT"
 
       - name: Derive image tags
         id: meta
