@@ -4,6 +4,12 @@ resource "azurerm_resource_group" "this" {
   tags     = var.tags
 }
 
+# Justification for the ignore below: this is a cost-effective TEST cluster, and
+# CD runs from GitHub-hosted runners whose egress IPs are dynamic, so a public
+# API server is required. For production, restrict access by adding an
+# api_server_access_profile { authorized_ip_ranges = [...] } block with your
+# office/CI egress CIDRs, and remove the ignore.
+#trivy:ignore:AVD-AZU-0041
 resource "azurerm_kubernetes_cluster" "this" {
   name                = var.cluster_name
   location            = azurerm_resource_group.this.location
