@@ -1,0 +1,20 @@
+version: 2
+updates:
+  # Python dependencies (requirements.txt) — one grouped PR/week.
+  - package-ecosystem: pip
+    directory: /
+    schedule: { interval: weekly }
+    groups:
+      python: { patterns: ["*"] }
+
+  # Docker base image (Dockerfile).
+  - package-ecosystem: docker
+    directory: /
+    schedule: { interval: weekly }
+
+  # GitHub Actions versions used in workflows.
+  - package-ecosystem: github-actions
+    directory: /
+    schedule: { interval: weekly }
+    groups:
+      actions: { patterns: ["*"] }
