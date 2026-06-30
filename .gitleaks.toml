@@ -1,0 +1,17 @@
+title = "Gitleaks config for RAG-ChatBot"
+
+# Start from Gitleaks' built-in rule set, then add project allowlists.
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Ignore documentation placeholders and example env files (no real secrets)"
+paths = [
+  '''(^|/)\.env\.example$''',
+  '''(^|/)README\.md$''',
+]
+# Placeholder tokens used in docs/examples.
+regexes = [
+  '''sk-ant-(api03-)?x+''',
+  '''x{16,}''',
+]

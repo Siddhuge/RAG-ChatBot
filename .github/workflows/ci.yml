@@ -1,6 +1,9 @@
 name: CI/CD
 
-# Build, test, and publish the RAG Chatbot image to Docker Hub.
+# Test, security-scan, build, and publish the RAG Chatbot image to Docker Hub.
+#
+# Pipeline: test  +  security (Gitleaks secrets, Bandit SAST, Trivy fs CVEs)
+#           -> docker (build -> Trivy image scan -> push, on push events only)
 #
 # Required repository secrets (Settings → Secrets and variables → Actions):
 #   DOCKERHUB_USERNAME  your Docker Hub username
@@ -40,10 +43,50 @@ jobs:
       - name: Run tests
         run: pytest -q
 
-  docker:
-    name: Build & Push image
+  security:
+    name: Security scan
     runs-on: ubuntu-latest
-    needs: test
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0   # full git history so secret scanning checks every commit
+
+      # 1) Secret scanning — detect committed credentials (current tree + history).
+      - name: Secret scan (Gitleaks)
+        run: |
+          docker run --rm -v "${{ github.workspace }}:/repo" \
+            ghcr.io/gitleaks/gitleaks:latest detect \
+            --source=/repo --config=/repo/.gitleaks.toml \
+            --redact --verbose --exit-code=1
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      # 2) Static application security testing of our own Python code.
+      - name: SAST (Bandit)
+        run: |
+          pip install bandit
+          bandit -r app client scripts -ll -ii
+
+      # 3) Dependency CVEs + Dockerfile misconfiguration (fails on fixable CRITICALs).
+      - name: Dependency & config scan (Trivy filesystem)
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          scan-type: fs
+          scan-ref: .
+          scanners: vuln,misconfig
+          severity: CRITICAL
+          ignore-unfixed: true
+          exit-code: "1"
+
+  docker:
+    name: Build, scan & push image
+    runs-on: ubuntu-latest
+    needs: [test, security]
     # Publish only on pushes to main / version tags (not PRs).
     if: github.event_name == 'push'
     permissions:
@@ -103,14 +146,37 @@ jobs:
             type=sha,format=short
             type=raw,value=latest,enable={{is_default_branch}}
 
-      - name: Build and push
+      # Build and load locally so we can scan BEFORE publishing.
+      - name: Build image (load for scanning)
         uses: docker/build-push-action@v6
         with:
           context: .
           file: ./Dockerfile
           platforms: linux/amd64
-          push: true
-          tags: ${{ steps.meta.outputs.tags }}
+          load: true
+          tags: |
+            ${{ steps.meta.outputs.tags }}
+            ragchatbot-localscan:ci
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
+      # Container image scan — fail the build on fixable CRITICAL vulnerabilities
+      # so a vulnerable image is never pushed.
+      - name: Scan image (Trivy)
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          image-ref: ragchatbot-localscan:ci
+          severity: CRITICAL
+          ignore-unfixed: true
+          exit-code: "1"
+          format: table
+
+      # Only reached if the scan passed. Push every derived tag.
+      - name: Push image
+        run: |
+          while IFS= read -r tag; do
+            [ -n "$tag" ] || continue
+            echo "Pushing $tag"
+            docker push "$tag"
+          done <<< "${{ steps.meta.outputs.tags }}"
