@@ -15,6 +15,10 @@ spec:
       labels:
         app: rag-api
     spec:
+      # Make the PVC writable by the non-root app user (uid/gid 1000): fsGroup
+      # group-owns the mounted volume so /v1/upload can write to /app/data.
+      securityContext:
+        fsGroup: 1000
       containers:
         - name: api
           image: siddhuge/rag-chatbot:latest
@@ -49,10 +53,10 @@ spec:
             - name: data
               mountPath: /app/data
       volumes:
-        # Uploaded docs (/v1/upload) live here. emptyDir = per-pod, ephemeral;
-        # swap for a PVC if you need uploads to survive restarts.
+        # Uploaded docs (/v1/upload) persist here across pod restarts.
         - name: data
-          emptyDir: {}
+          persistentVolumeClaim:
+            claimName: rag-data
 ---
 apiVersion: v1
 kind: Service
