@@ -1,0 +1,67 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: rag-api
+  namespace: rag-chatbot
+  labels:
+    app: rag-api
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: rag-api
+  template:
+    metadata:
+      labels:
+        app: rag-api
+    spec:
+      containers:
+        - name: api
+          image: siddhuge/rag-chatbot:latest
+          imagePullPolicy: Always
+          ports:
+            - containerPort: 8000
+          envFrom:
+            - configMapRef:
+                name: rag-config
+            - secretRef:
+                name: rag-secrets
+          readinessProbe:
+            httpGet:
+              path: /v1/health
+              port: 8000
+            initialDelaySeconds: 20
+            periodSeconds: 15
+          livenessProbe:
+            httpGet:
+              path: /v1/health
+              port: 8000
+            initialDelaySeconds: 40
+            periodSeconds: 20
+          resources:
+            requests:
+              cpu: 250m
+              memory: 1Gi
+            limits:
+              cpu: "1"
+              memory: 2Gi
+          volumeMounts:
+            - name: data
+              mountPath: /app/data
+      volumes:
+        # Uploaded docs (/v1/upload) live here. emptyDir = per-pod, ephemeral;
+        # swap for a PVC if you need uploads to survive restarts.
+        - name: data
+          emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: rag-api
+  namespace: rag-chatbot
+spec:
+  selector:
+    app: rag-api
+  ports:
+    - port: 8000
+      targetPort: 8000

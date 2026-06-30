@@ -1,0 +1,57 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: rag-ui
+  namespace: rag-chatbot
+  labels:
+    app: rag-ui
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: rag-ui
+  template:
+    metadata:
+      labels:
+        app: rag-ui
+    spec:
+      containers:
+        - name: ui
+          image: siddhuge/rag-chatbot:latest
+          imagePullPolicy: Always
+          command:
+            ["streamlit", "run", "ui/streamlit_app.py", "--server.address=0.0.0.0", "--server.port=8501"]
+          ports:
+            - containerPort: 8501
+          envFrom:
+            - configMapRef:
+                name: rag-config
+            - secretRef:
+                name: rag-secrets
+          readinessProbe:
+            httpGet:
+              path: /_stcore/health
+              port: 8501
+            initialDelaySeconds: 20
+            periodSeconds: 15
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: rag-ui
+  namespace: rag-chatbot
+spec:
+  # Public LoadBalancer gives the UI an external IP for testing.
+  type: LoadBalancer
+  selector:
+    app: rag-ui
+  ports:
+    - port: 80
+      targetPort: 8501

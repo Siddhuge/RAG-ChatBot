@@ -1,0 +1,13 @@
+# Terraform state (may contain secrets) — never commit
+*.tfstate
+*.tfstate.*
+.terraform/
+.terraform.lock.hcl
+
+# Local variable values (may contain subscription id) — never commit
+terraform.tfvars
+*.auto.tfvars
+
+# Plans
+*.tfplan
+crash.log

@@ -1,0 +1,79 @@
+name: CD (AKS)
+
+# Deploy the published image to the AKS cluster.
+#
+# Runs automatically after the "CI/CD" workflow succeeds on main (image is then
+# on Docker Hub), or manually via the Actions tab.
+#
+# Required repository secrets:
+#   AZURE_CREDENTIALS   service-principal JSON (see k8s deploy notes below)
+#   ANTHROPIC_API_KEY   your Claude API key
+#   APP_API_KEYS        API key(s) the service accepts (also used as RAG_API_KEY)
+#   DOCKERHUB_USERNAME  Docker Hub namespace of the image (e.g. siddhuge)
+#
+# Create AZURE_CREDENTIALS once:
+#   az ad sp create-for-rbac --name rag-chatbot-cd \
+#     --role "Azure Kubernetes Service Cluster User Role" \
+#     --scopes /subscriptions/<SUB_ID>/resourceGroups/rag-chatbot-rg \
+#     --sdk-auth
+#   (paste the JSON output into the AZURE_CREDENTIALS secret)
+
+on:
+  workflow_run:
+    workflows: ["CI/CD"]
+    types: [completed]
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      image_tag:
+        description: "Image tag to deploy"
+        default: latest
+
+env:
+  RESOURCE_GROUP: rag-chatbot-rg
+  CLUSTER_NAME: rag-chatbot-aks
+  NAMESPACE: rag-chatbot
+  IMAGE: ${{ secrets.DOCKERHUB_USERNAME }}/rag-chatbot
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    # Deploy only on a manual run, or when the upstream CI run succeeded.
+    if: ${{ github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success' }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Azure login
+        uses: azure/login@v2
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
+
+      - name: Get AKS credentials
+        run: az aks get-credentials -g "$RESOURCE_GROUP" -n "$CLUSTER_NAME" --overwrite-existing
+
+      - name: Ensure namespace + sync secret
+        run: |
+          kubectl apply -f k8s/00-namespace.yaml
+          kubectl -n "$NAMESPACE" create secret generic rag-secrets \
+            --from-literal=ANTHROPIC_API_KEY='${{ secrets.ANTHROPIC_API_KEY }}' \
+            --from-literal=APP_API_KEYS='${{ secrets.APP_API_KEYS }}' \
+            --from-literal=RAG_API_KEY='${{ secrets.APP_API_KEYS }}' \
+            --dry-run=client -o yaml | kubectl apply -f -
+
+      - name: Apply manifests
+        run: kubectl apply -f k8s/
+
+      - name: Deploy image & roll out
+        run: |
+          TAG='${{ github.event.inputs.image_tag }}'
+          TAG="${TAG:-latest}"
+          echo "Deploying $IMAGE:$TAG"
+          kubectl -n "$NAMESPACE" set image deployment/rag-api api="$IMAGE:$TAG"
+          kubectl -n "$NAMESPACE" set image deployment/rag-ui  ui="$IMAGE:$TAG"
+          # Force a fresh pull when the tag is unchanged (e.g. :latest).
+          kubectl -n "$NAMESPACE" rollout restart deployment/rag-api deployment/rag-ui
+          kubectl -n "$NAMESPACE" rollout status deployment/rag-api --timeout=300s
+          kubectl -n "$NAMESPACE" rollout status deployment/rag-ui  --timeout=300s
+
+      - name: Show deployment status
+        run: kubectl -n "$NAMESPACE" get pods,svc -o wide
