@@ -1,0 +1,28 @@
+# --- API server ---
+fastapi==0.115.6
+uvicorn[standard]==0.34.0
+python-multipart==0.0.20          # file uploads
+pydantic==2.10.4
+pydantic-settings==2.7.1
+
+# --- Claude ---
+anthropic==0.69.0
+
+# --- Embeddings (local, free) ---
+sentence-transformers==3.3.1
+
+# --- Vector store ---
+qdrant-client==1.12.2
+
+# --- Document loaders ---
+pypdf==5.1.0
+python-docx==1.1.2
+
+# --- Web chat UI (Streamlit) ---
+streamlit==1.41.1
+
+# --- HTTP client (CLI + Streamlit talk to the API) ---
+httpx==0.28.1                     # also required by fastapi TestClient
+
+# --- Tests ---
+pytest==8.3.4

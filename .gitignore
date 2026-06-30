@@ -1,0 +1,25 @@
+# Secrets
+.env
+
+# Data (your documents) — don't commit corpora
+data/*
+!data/README.md
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+.pytest_cache/
+.mypy_cache/
+
+# Local model cache
+.cache/
+*.bin
+
+# OS / editor / local tooling
+.DS_Store
+.idea/
+.vscode/
+.claude/
