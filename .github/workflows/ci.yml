@@ -37,7 +37,7 @@ jobs:
       - name: Install dependencies (CPU-only torch)
         run: |
           python -m pip install --upgrade pip
-          pip install torch==2.5.1 --index-url https://download.pytorch.org/whl/cpu
+          pip install torch==2.6.0 --index-url https://download.pytorch.org/whl/cpu
           pip install -r requirements.txt
 
       - name: Run tests
@@ -74,14 +74,10 @@ jobs:
 
       # 3) Dependency CVEs + Dockerfile misconfiguration (fails on fixable CRITICALs).
       - name: Dependency & config scan (Trivy filesystem)
-        uses: aquasecurity/trivy-action@0.28.0
-        with:
-          scan-type: fs
-          scan-ref: .
-          scanners: vuln,misconfig
-          severity: CRITICAL
-          ignore-unfixed: true
-          exit-code: "1"
+        run: |
+          docker run --rm -v "${{ github.workspace }}:/repo" aquasec/trivy:latest \
+            fs /repo --scanners vuln,misconfig --severity CRITICAL \
+            --ignore-unfixed --exit-code 1 --no-progress
 
   docker:
     name: Build, scan & push image
@@ -164,13 +160,10 @@ jobs:
       # Container image scan — fail the build on fixable CRITICAL vulnerabilities
       # so a vulnerable image is never pushed.
       - name: Scan image (Trivy)
-        uses: aquasecurity/trivy-action@0.28.0
-        with:
-          image-ref: ragchatbot-localscan:ci
-          severity: CRITICAL
-          ignore-unfixed: true
-          exit-code: "1"
-          format: table
+        run: |
+          docker run --rm -v /var/run/docker.sock:/var/run/docker.sock aquasec/trivy:latest \
+            image ragchatbot-localscan:ci --severity CRITICAL \
+            --ignore-unfixed --exit-code 1 --no-progress
 
       # Only reached if the scan passed. Push every derived tag.
       - name: Push image
