@@ -48,8 +48,9 @@ metadata:
   name: rag-ui
   namespace: rag-chatbot
 spec:
-  # Public LoadBalancer gives the UI an external IP for testing.
-  type: LoadBalancer
+  # ClusterIP: the UI is exposed publicly through the NGINX Ingress (HTTPS),
+  # not its own LoadBalancer. See k8s/60-ingress.yaml + k8s/INGRESS-SETUP.md.
+  type: ClusterIP
   selector:
     app: rag-ui
   ports:
