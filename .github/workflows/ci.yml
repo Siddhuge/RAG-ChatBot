@@ -67,6 +67,8 @@ jobs:
           # Unambiguous whitespace strip (CR/LF/tab/space anywhere).
           Uc="${U//[$'\r\n\t ']/}"
           Tc="${T//[$'\r\n\t ']/}"
+          # Docker Hub usernames AND image names must be lowercase.
+          Uc="${Uc,,}"
 
           # --- Safe diagnostics: NO secret values are printed, only facts ---
           echo "username length (raw=${#U}, trimmed=${#Uc})"
