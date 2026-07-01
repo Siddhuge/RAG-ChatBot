@@ -13,6 +13,10 @@ metadata:
     nginx.ingress.kubernetes.io/proxy-body-size: "50m"
     # Don't buffer responses, so /v1/chat/stream SSE works through the API host.
     nginx.ingress.kubernetes.io/proxy-buffering: "off"
+    # cert-manager auto-issues a trusted Let's Encrypt cert into 'rag-tls' and
+    # renews it. Use 'letsencrypt-staging' while testing. Requires cert-manager
+    # + the ClusterIssuer (k8s/setup/cert-manager-issuers.yaml).
+    cert-manager.io/cluster-issuer: letsencrypt-prod
 spec:
   ingressClassName: nginx
   tls:
