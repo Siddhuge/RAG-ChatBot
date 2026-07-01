@@ -14,20 +14,34 @@ kubectl -n ingress-nginx wait --for=condition=available deployment/ingress-nginx
 kubectl -n ingress-nginx get svc ingress-nginx-controller
 ```
 
-## 2. Pick a host
+## 2. Point DNS at the ingress (domain: shugeinfo.xyz)
 
-No domain needed for testing — use **nip.io**, which resolves `*.<IP>.nip.io`
-to `<IP>`:
+`60-ingress.yaml` uses two stable hostnames:
 
 ```
-UIH=rag.<INGRESS_IP>.nip.io       # UI  host, e.g. rag.4.157.223.24.nip.io
-APIH=api.<INGRESS_IP>.nip.io      # API host, e.g. api.4.157.223.24.nip.io
+UIH=rag.shugeinfo.xyz    # UI  -> rag-ui
+APIH=api.shugeinfo.xyz   # API -> rag-api
 ```
 
-`60-ingress.yaml` routes the UI host to `rag-ui` and the API host to `rag-api`
-(so you can upload/ingest/chat over HTTPS). **If the ingress IP changes**
-(controller/cluster reinstalled), update **both** hosts in `60-ingress.yaml` and
-regenerate the cert below with both SANs.
+Create/point two **A records** at your DNS provider to the ingress controller's
+public IP from step 1:
+
+```
+rag.shugeinfo.xyz   A   <INGRESS_IP>
+api.shugeinfo.xyz   A   <INGRESS_IP>
+```
+
+Verify they resolve before requesting a cert (HTTP-01 needs them live):
+
+```bash
+dig +short rag.shugeinfo.xyz    # should print <INGRESS_IP>
+dig +short api.shugeinfo.xyz
+```
+
+> **On recreate:** the hostnames don't change — only the ingress IP does. So the
+> **only** step is repointing these two A records to the new `<INGRESS_IP>`.
+> `60-ingress.yaml` needs no edits. (To automate even this, use `external-dns` +
+> cert-manager DNS-01 — see the note at the bottom.)
 
 ## 3. TLS certificate — trusted, auto-issued (cert-manager + Let's Encrypt)
 
@@ -89,4 +103,20 @@ curl -X POST https://$APIH/v1/upload \
 
 If `kubectl -n rag-chatbot describe certificate rag-tls` shows the challenge
 stuck, confirm the ingress is reachable on **port 80** (HTTP-01 needs it) and
-that the nip.io host resolves to the ingress IP.
+that `rag.shugeinfo.xyz` / `api.shugeinfo.xyz` resolve to the ingress IP.
+
+## Optional — fully automate DNS (no manual A-record repoint)
+
+To remove the only manual recreate step, run **external-dns** in the cluster so
+it writes the A records for you, and switch cert-manager to a **DNS-01** issuer
+(also enables wildcard certs). Both need API credentials for wherever
+`shugeinfo.xyz` is hosted (e.g. Cloudflare, Azure DNS, Route 53). Sketch:
+
+- Deploy `external-dns` with `--domain-filter=shugeinfo.xyz` and your provider
+  credentials; it syncs Ingress hosts → DNS records automatically.
+- Add a DNS-01 solver to the ClusterIssuer for your provider (replaces the
+  http01 solver), so certs issue without needing port 80 reachable.
+
+With that, a cluster recreate needs zero DNS/cert steps — external-dns repoints
+the records and cert-manager re-issues. (Provider-specific setup is out of scope
+here; tell me your DNS provider and I can wire it.)

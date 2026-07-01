@@ -1,7 +1,6 @@
-# NOTE: the nip.io hosts below embed the ingress controller's public IP.
-# That IP changes whenever the ingress controller (or cluster) is recreated.
-# After (re)installing the controller, update both hosts here AND regenerate the
-# TLS cert with the new SANs — see k8s/INGRESS-SETUP.md.
+# Hosts use the real domain shugeinfo.xyz, so they're STABLE across cluster
+# recreates. On recreate you only repoint the DNS A records to the new ingress
+# controller IP (see k8s/INGRESS-SETUP.md) — no edits here needed.
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
@@ -21,12 +20,12 @@ spec:
   ingressClassName: nginx
   tls:
     - hosts:
-        - rag.4.157.223.24.nip.io
-        - api.4.157.223.24.nip.io
+        - rag.shugeinfo.xyz
+        - api.shugeinfo.xyz
       secretName: rag-tls
   rules:
     # UI (Streamlit)
-    - host: rag.4.157.223.24.nip.io
+    - host: rag.shugeinfo.xyz
       http:
         paths:
           - path: /
@@ -37,7 +36,7 @@ spec:
                 port:
                   number: 80
     # API (FastAPI) — upload / ingest / chat over HTTPS
-    - host: api.4.157.223.24.nip.io
+    - host: api.shugeinfo.xyz
       http:
         paths:
           - path: /
