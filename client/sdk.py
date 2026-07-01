@@ -28,7 +28,9 @@ class RagClient:
     ):
         base_url = (base_url or os.getenv("RAG_API_URL", "http://localhost:8000")).rstrip("/")
         self.api_key = api_key or os.getenv("RAG_API_KEY") or None
-        headers = {"Content-Type": "application/json"}
+        # No default Content-Type: httpx sets it per request (application/json for
+        # json=, multipart/form-data for files=). A fixed default would break uploads.
+        headers = {}
         if self.api_key:
             headers["X-API-Key"] = self.api_key
         # A single client gives connection reuse and an injection point for tests.
@@ -70,6 +72,19 @@ class RagClient:
 
     def ingest(self) -> dict:
         return self._request("POST", "/v1/ingest", {})
+
+    def upload(
+        self, filename: str, content: bytes, content_type: str = "application/octet-stream"
+    ) -> dict:
+        """Upload a single document; the server saves it and ingests it."""
+        files = {"file": (filename, content, content_type)}
+        try:
+            resp = self._client.post("/v1/upload", files=files)
+        except httpx.HTTPError as exc:
+            raise RagClientError(f"Request failed: {exc}") from exc
+        if resp.status_code >= 400:
+            raise RagClientError(f"{resp.status_code}: {resp.text}")
+        return resp.json()
 
     # --- chat ---
 

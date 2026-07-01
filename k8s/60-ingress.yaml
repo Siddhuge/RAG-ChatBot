@@ -1,3 +1,7 @@
+# NOTE: the nip.io hosts below embed the ingress controller's public IP.
+# That IP changes whenever the ingress controller (or cluster) is recreated.
+# After (re)installing the controller, update both hosts here AND regenerate the
+# TLS cert with the new SANs — see k8s/INGRESS-SETUP.md.
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
@@ -5,13 +9,20 @@ metadata:
   namespace: rag-chatbot
   annotations:
     nginx.ingress.kubernetes.io/ssl-redirect: "true"
+    # Allow document uploads up to 50 MB (default nginx limit is 1 MB).
+    nginx.ingress.kubernetes.io/proxy-body-size: "50m"
+    # Don't buffer responses, so /v1/chat/stream SSE works through the API host.
+    nginx.ingress.kubernetes.io/proxy-buffering: "off"
 spec:
   ingressClassName: nginx
   tls:
-    - hosts: ["rag.4.157.223.24.nip.io"]
+    - hosts:
+        - rag.4.157.223.24.nip.io
+        - api.4.157.223.24.nip.io
       secretName: rag-tls
   rules:
-    - host: "rag.4.157.223.24.nip.io"
+    # UI (Streamlit)
+    - host: rag.4.157.223.24.nip.io
       http:
         paths:
           - path: /
@@ -21,3 +32,14 @@ spec:
                 name: rag-ui
                 port:
                   number: 80
+    # API (FastAPI) — upload / ingest / chat over HTTPS
+    - host: api.4.157.223.24.nip.io
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: rag-api
+                port:
+                  number: 8000

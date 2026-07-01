@@ -60,6 +60,27 @@ with st.sidebar:
             except RagClientError as exc:
                 st.error(str(exc))
 
+    st.divider()
+    st.subheader("📎 Add documents")
+    uploads = st.file_uploader(
+        "Upload files to the knowledge base",
+        type=["pdf", "docx", "txt", "md", "markdown"],
+        accept_multiple_files=True,
+    )
+    if uploads and st.button("Upload & ingest", type="primary"):
+        for uf in uploads:
+            with st.spinner(f"Ingesting {uf.name}…"):
+                try:
+                    res = client.upload(
+                        uf.name, uf.getvalue(), uf.type or "application/octet-stream"
+                    )
+                    st.success(f"{uf.name}: {res['chunks_indexed']} chunks indexed")
+                    if res.get("errors"):
+                        st.warning("; ".join(res["errors"]))
+                except RagClientError as exc:
+                    st.error(f"{uf.name}: {exc}")
+
+    st.divider()
     if st.button("🗑️ Clear conversation"):
         st.session_state.messages = []
         st.rerun()

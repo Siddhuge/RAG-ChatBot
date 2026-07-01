@@ -60,6 +60,22 @@ def test_chat_stream_parses_sse_events():
     assert answer == "Hello world"
 
 
+def test_upload_sends_multipart():
+    captured = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        captured["ct"] = request.headers.get("content-type", "")
+        captured["body_has_file"] = b"filename=" in request.content
+        return httpx.Response(200, json={"files_processed": 1, "chunks_indexed": 3, "errors": []})
+
+    with RagClient(base_url="http://test", transport=_transport(handler)) as c:
+        res = c.upload("doc.txt", b"hello world", "text/plain")
+
+    assert res["chunks_indexed"] == 3
+    assert captured["ct"].startswith("multipart/form-data")
+    assert captured["body_has_file"]
+
+
 def test_error_status_raises():
     import pytest
 
