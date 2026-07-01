@@ -5,18 +5,19 @@ name: CD (AKS)
 # Runs automatically after the "CI/CD" workflow succeeds on main (image is then
 # on Docker Hub), or manually via the Actions tab.
 #
-# Required repository secrets:
-#   AZURE_CREDENTIALS   service-principal JSON (see k8s deploy notes below)
-#   ANTHROPIC_API_KEY   your Claude API key
-#   APP_API_KEYS        API key(s) the service accepts (also used as RAG_API_KEY)
-#   DOCKERHUB_USERNAME  Docker Hub namespace of the image (e.g. siddhuge)
+# Auth: OIDC (federated credential) — no stored Azure secret.
 #
-# Create AZURE_CREDENTIALS once:
-#   az ad sp create-for-rbac --name rag-chatbot-cd \
-#     --role "Azure Kubernetes Service Cluster User Role" \
-#     --scopes /subscriptions/<SUB_ID>/resourceGroups/rag-chatbot-rg \
-#     --sdk-auth
-#   (paste the JSON output into the AZURE_CREDENTIALS secret)
+# Required repository secrets:
+#   AZURE_CLIENT_ID        app registration (client) ID with a GitHub federated credential
+#   AZURE_TENANT_ID        Azure AD tenant ID
+#   AZURE_SUBSCRIPTION_ID  target subscription ID
+#   ANTHROPIC_API_KEY      your Claude API key
+#   APP_API_KEYS           API key(s) the service accepts (also used as RAG_API_KEY)
+#   DOCKERHUB_USERNAME     Docker Hub namespace of the image (e.g. siddhuge)
+#
+# One-time OIDC setup (creates the app, federated credential, and role) is in
+# DEPLOYMENT.md → Deploy to AKS. The federated credential subject must match the
+# trigger, e.g. subject "repo:<owner>/<repo>:ref:refs/heads/main".
 
 on:
   workflow_run:
@@ -35,6 +36,10 @@ env:
   NAMESPACE: rag-chatbot
   IMAGE: ${{ secrets.DOCKERHUB_USERNAME }}/rag-chatbot
 
+permissions:
+  id-token: write # required for OIDC federated login
+  contents: read
+
 jobs:
   deploy:
     runs-on: ubuntu-latest
@@ -43,10 +48,12 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Azure login
+      - name: Azure login (OIDC)
         uses: azure/login@v2
         with:
-          creds: ${{ secrets.AZURE_CREDENTIALS }}
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
 
       - name: Get AKS credentials
         run: az aks get-credentials -g "$RESOURCE_GROUP" -n "$CLUSTER_NAME" --overwrite-existing

@@ -461,11 +461,45 @@ sed 's/<YOUR_EMAIL>/you@example.com/' k8s/setup/cert-manager-issuers.yaml | kube
 kubectl -n ingress-nginx get svc ingress-nginx-controller   # note EXTERNAL-IP
 ```
 
+### CD authentication — OIDC (no stored Azure secret)
+
+CD logs into Azure with a **federated credential** (GitHub OIDC), so there's no
+long-lived secret. Create the identity once:
+
+```bash
+SUB=$(az account show --query id -o tsv)
+TENANT=$(az account show --query tenantId -o tsv)
+
+# App registration + service principal
+APP_ID=$(az ad app create --display-name rag-chatbot-oidc --query appId -o tsv)
+az ad sp create --id "$APP_ID"
+SP_OID=$(az ad sp show --id "$APP_ID" --query id -o tsv)
+
+# Federated credential — subject MUST match the deploy trigger (main branch)
+az ad app federated-credential create --id "$APP_ID" --parameters '{
+  "name":"github-main",
+  "issuer":"https://token.actions.githubusercontent.com",
+  "subject":"repo:<owner>/<repo>:ref:refs/heads/main",
+  "audiences":["api://AzureADTokenExchange"]
+}'
+
+# Let CD fetch the kubeconfig + apply to the cluster
+az role assignment create --assignee-object-id "$SP_OID" \
+  --assignee-principal-type ServicePrincipal \
+  --role "Azure Kubernetes Service Cluster User Role" \
+  --scope "/subscriptions/$SUB/resourceGroups/rag-chatbot-rg"
+
+echo "AZURE_CLIENT_ID=$APP_ID  AZURE_TENANT_ID=$TENANT  AZURE_SUBSCRIPTION_ID=$SUB"
+```
+
+Add `AZURE_CLIENT_ID`, `AZURE_TENANT_ID`, `AZURE_SUBSCRIPTION_ID` as GitHub
+secrets. The workflow requests an OIDC token via `permissions: id-token: write`.
+
 ### Every deploy (automated by CD)
 
-Once the cluster exists and the CD secrets are set (`AZURE_CREDENTIALS`,
-`ANTHROPIC_API_KEY`, `APP_API_KEYS` — see [§8](#8-cicd-setup)), a push to `main`
-runs CI then [`cd.yml`](.github/workflows/cd.yml), which:
+Once the cluster exists and the CD secrets are set (`AZURE_CLIENT_ID`,
+`AZURE_TENANT_ID`, `AZURE_SUBSCRIPTION_ID`, `ANTHROPIC_API_KEY`, `APP_API_KEYS`),
+a push to `main` runs CI then [`cd.yml`](.github/workflows/cd.yml), which:
 
 1. logs into Azure and fetches AKS credentials,
 2. syncs the `rag-secrets` Secret from your GitHub secrets,
