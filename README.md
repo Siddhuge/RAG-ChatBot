@@ -223,7 +223,7 @@ never reaches Docker Hub. Published image: `<DOCKERHUB_USERNAME>/rag-chatbot`
 |---|---|---|
 | `DOCKERHUB_USERNAME` | CI | Docker Hub username (lowercase) |
 | `DOCKERHUB_TOKEN` | CI | Docker Hub **access token** (not your password) |
-| `AZURE_CREDENTIALS` | CD | Service-principal JSON (see [cd.yml](.github/workflows/cd.yml) header) |
+| `AZURE_CLIENT_ID` / `AZURE_TENANT_ID` / `AZURE_SUBSCRIPTION_ID` | CD | Azure **OIDC** federated login (no stored secret) — setup in [DEPLOYMENT.md](DEPLOYMENT.md#deploy-to-aks-kubernetes) |
 | `ANTHROPIC_API_KEY` | CD | Claude API key (synced into the cluster) |
 | `APP_API_KEYS` | CD | API key(s) the service accepts |
 
