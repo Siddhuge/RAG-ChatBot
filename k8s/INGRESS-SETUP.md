@@ -105,18 +105,36 @@ If `kubectl -n rag-chatbot describe certificate rag-tls` shows the challenge
 stuck, confirm the ingress is reachable on **port 80** (HTTP-01 needs it) and
 that `rag.shugeinfo.xyz` / `api.shugeinfo.xyz` resolve to the ingress IP.
 
-## Optional — fully automate DNS (no manual A-record repoint)
+## Optional — auto-manage DNS with external-dns (GoDaddy)
 
-To remove the only manual recreate step, run **external-dns** in the cluster so
-it writes the A records for you, and switch cert-manager to a **DNS-01** issuer
-(also enables wildcard certs). Both need API credentials for wherever
-`shugeinfo.xyz` is hosted (e.g. Cloudflare, Azure DNS, Route 53). Sketch:
+`shugeinfo.xyz` is on **GoDaddy**. Instead of setting the A records by hand,
+run **external-dns**, which watches the ingress and keeps
+`rag.shugeinfo.xyz` / `api.shugeinfo.xyz` pointed at the ingress IP — including
+after a recreate. Certs stay on **HTTP-01** (cert-manager has no native GoDaddy
+DNS-01 solver, and HTTP-01 needs no DNS API).
 
-- Deploy `external-dns` with `--domain-filter=shugeinfo.xyz` and your provider
-  credentials; it syncs Ingress hosts → DNS records automatically.
-- Add a DNS-01 solver to the ClusterIssuer for your provider (replaces the
-  http01 solver), so certs issue without needing port 80 reachable.
+```bash
+# 1. Get a PRODUCTION API key+secret: https://developer.godaddy.com/keys
+#    (the OTE/test key won't touch real DNS)
+kubectl create namespace external-dns
+kubectl -n external-dns create secret generic godaddy-credentials \
+  --from-literal=GODADDY_API_KEY=<key> \
+  --from-literal=GODADDY_API_SECRET=<secret>
 
-With that, a cluster recreate needs zero DNS/cert steps — external-dns repoints
-the records and cert-manager re-issues. (Provider-specific setup is out of scope
-here; tell me your DNS provider and I can wire it.)
+# 2. Deploy external-dns
+kubectl apply -f k8s/setup/external-dns-godaddy.yaml
+
+# 3. Watch it create the records
+kubectl -n external-dns logs deploy/external-dns -f
+```
+
+> ⚠️ **GoDaddy API access is gated.** GoDaddy grants production API access only
+> to qualifying accounts (historically ~10+ domains, or certain plans). If
+> external-dns logs show `ACCESS_DENIED` / 403, your account doesn't have API
+> access — just create the two A records manually (step 2 above); the hostnames
+> are stable, so it's a one-time task (repoint the IP on recreate).
+
+Fully hands-off recreates (no manual DNS *and* no port-80 dependency) would need
+a DNS-01 solver, which for GoDaddy means a community cert-manager webhook —
+not wired here due to its maintenance risk. HTTP-01 + external-dns is the
+reliable combo.

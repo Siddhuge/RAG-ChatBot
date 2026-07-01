@@ -1,0 +1,94 @@
+# external-dns for GoDaddy — auto-creates/updates DNS records from Ingress hosts.
+#
+# One-time cluster setup (NOT applied by CD's non-recursive `kubectl apply -f k8s/`).
+#
+# Prereqs:
+#   1. A GoDaddy PRODUCTION API key + secret from https://developer.godaddy.com/keys
+#      (the OTE/test key will NOT modify real DNS). Note: GoDaddy restricts
+#      production API access to qualifying accounts — if you get ACCESS_DENIED,
+#      set the A records manually instead (see k8s/INGRESS-SETUP.md).
+#   2. Create the credentials secret (do NOT commit real keys):
+#        kubectl -n external-dns create secret generic godaddy-credentials \
+#          --from-literal=GODADDY_API_KEY=<key> \
+#          --from-literal=GODADDY_API_SECRET=<secret>
+#   3. kubectl apply -f k8s/setup/external-dns-godaddy.yaml
+#
+# With this running, external-dns watches the ingress and keeps
+# rag.shugeinfo.xyz / api.shugeinfo.xyz pointed at the ingress IP — including
+# after a cluster recreate. cert-manager (HTTP-01) then issues the certs.
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: external-dns
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: external-dns
+  namespace: external-dns
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: external-dns
+rules:
+  - apiGroups: [""]
+    resources: ["services", "endpoints", "pods", "nodes"]
+    verbs: ["get", "watch", "list"]
+  - apiGroups: ["networking.k8s.io"]
+    resources: ["ingresses"]
+    verbs: ["get", "watch", "list"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: external-dns
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: external-dns
+subjects:
+  - kind: ServiceAccount
+    name: external-dns
+    namespace: external-dns
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: external-dns
+  namespace: external-dns
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: external-dns
+  template:
+    metadata:
+      labels:
+        app: external-dns
+    spec:
+      serviceAccountName: external-dns
+      containers:
+        - name: external-dns
+          # If this version has dropped the in-tree godaddy provider, switch to
+          # the external-dns GoDaddy webhook provider (see external-dns docs).
+          image: registry.k8s.io/external-dns/external-dns:v0.15.0
+          args:
+            - --source=ingress
+            - --provider=godaddy
+            - --domain-filter=shugeinfo.xyz
+            - --registry=txt
+            - --txt-owner-id=rag-chatbot
+            - --policy=upsert-only # never delete records automatically
+            - --interval=1m
+          envFrom:
+            - secretRef:
+                name: godaddy-credentials
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 200m
+              memory: 128Mi
