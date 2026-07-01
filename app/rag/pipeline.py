@@ -161,7 +161,6 @@ async def answer_stream(
     Yields dicts shaped as {"type": "...", ...} for SSE serialization.
     """
     chunks = _retrieve(question, top_k, sources)
-    settings = get_settings()
 
     # Always tell the client what was retrieved up front.
     yield {

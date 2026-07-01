@@ -20,6 +20,15 @@ answers are verifiable, not hallucinated.
 The **only** paid dependency is the Claude API. Embeddings and the vector store
 cost nothing to run.
 
+## Documentation
+
+| Guide | What's in it |
+|---|---|
+| **This README** | Overview, quick start, the three interfaces, API reference |
+| [DEPLOYMENT.md](DEPLOYMENT.md) | Full deployment guide — local, Docker Compose, Docker Hub, and Kubernetes/AKS |
+| [terraform/README.md](terraform/README.md) | Provision a cost-effective AKS cluster with Terraform |
+| [k8s/INGRESS-SETUP.md](k8s/INGRESS-SETUP.md) | Ingress controller, TLS (cert-manager + Let's Encrypt), DNS (external-dns/GoDaddy) |
+
 ## Architecture
 
 ```
@@ -196,34 +205,29 @@ Tests mock Qdrant and Claude, so they run with no services and no API key.
 
 ## Deployment & CI/CD
 
-### Continuous delivery (GitHub Actions → Docker Hub)
+### Pipelines (GitHub Actions)
 
-[`.github/workflows/ci.yml`](.github/workflows/ci.yml) runs the test suite on
-every push/PR, then builds and publishes the image to Docker Hub. It pushes on
-pushes to `main` and on `v*.*.*` tags (PRs build only, no push).
-
-**One-time setup** — add two repository secrets (GitHub → Settings → Secrets and
-variables → Actions):
-
-| Secret | Value |
+| Workflow | What it does |
 |---|---|
-| `DOCKERHUB_USERNAME` | Your Docker Hub username |
-| `DOCKERHUB_TOKEN` | A Docker Hub **access token** (hub.docker.com → Account Settings → Security → New Access Token) — not your password |
+| [`ci.yml`](.github/workflows/ci.yml) | On every push/PR: **test** → **security scan** (Gitleaks, Bandit, Trivy) → **build** → **image scan** → **push** to Docker Hub (push events only) |
+| [`cd.yml`](.github/workflows/cd.yml) | After CI succeeds on `main` (or manual): deploy the image to **AKS** |
+| [`dependabot.yml`](.github/dependabot.yml) | Weekly dependency-update PRs (pip, Docker, Actions) |
 
-Published image: `<DOCKERHUB_USERNAME>/rag-chatbot`
+The container image is **scanned before it is pushed**, so a vulnerable image
+never reaches Docker Hub. Published image: `<DOCKERHUB_USERNAME>/rag-chatbot`
+(`latest`, `main`, `<sha>` on `main`; `1.2.3`, `1.2`, `<sha>` on tag `v1.2.3`).
 
-| Trigger | Tags produced |
-|---|---|
-| push to `main` | `latest`, `main`, `<short-sha>` |
-| tag `v1.2.3` | `1.2.3`, `1.2`, `<short-sha>` |
+**Required repository secrets** (Settings → Secrets and variables → Actions):
 
-Cut a release:
+| Secret | For | Value |
+|---|---|---|
+| `DOCKERHUB_USERNAME` | CI | Docker Hub username (lowercase) |
+| `DOCKERHUB_TOKEN` | CI | Docker Hub **access token** (not your password) |
+| `AZURE_CREDENTIALS` | CD | Service-principal JSON (see [cd.yml](.github/workflows/cd.yml) header) |
+| `ANTHROPIC_API_KEY` | CD | Claude API key (synced into the cluster) |
+| `APP_API_KEYS` | CD | API key(s) the service accepts |
 
-```bash
-git tag v1.0.0 && git push origin v1.0.0
-```
-
-### Deploy on any machine (pull from Docker Hub)
+### Deploy on any machine (Docker Compose, from Docker Hub)
 
 No source checkout needed — just [`docker-compose.deploy.yml`](docker-compose.deploy.yml)
 and a `.env`:
@@ -233,5 +237,26 @@ export DOCKERHUB_USERNAME=your-dockerhub-username   # or set it in .env
 docker compose -f docker-compose.deploy.yml --env-file .env up -d
 ```
 
-This pulls `<username>/rag-chatbot:latest` for the API and UI and starts Qdrant
-alongside. Then ingest and chat exactly as in Quick Start.
+### Deploy to Kubernetes / Azure (AKS)
+
+- Provision a cost-effective cluster: [terraform/](terraform/) (see [terraform/README.md](terraform/README.md))
+- App manifests: [k8s/](k8s/) — Qdrant, API, UI, config, ingress
+- Ingress + TLS + DNS: [k8s/INGRESS-SETUP.md](k8s/INGRESS-SETUP.md)
+- End-to-end runbook: [DEPLOYMENT.md → Deploy to AKS](DEPLOYMENT.md#deploy-to-aks-kubernetes)
+
+## Project structure
+
+```
+app/            FastAPI service
+  api/          routes + API-key auth
+  rag/          chunking, embeddings, Qdrant, ingestion, answer pipeline
+  config.py     env-driven settings   models.py  request/response schemas
+client/         Python SDK used by the CLI + UI
+scripts/        ingest.py (index data/)   chat.py (CLI chat)
+ui/             Streamlit web chat
+tests/          unit tests (mock Qdrant + Claude)
+k8s/            Kubernetes manifests (+ setup/ for cluster add-ons)
+terraform/      AKS cluster (IaC)
+.github/        CI/CD workflows + Dependabot
+Dockerfile  docker-compose*.yml  Makefile  requirements.txt
+```

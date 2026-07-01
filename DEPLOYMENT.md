@@ -21,7 +21,8 @@ CI/CD, operations, and troubleshooting.
 11. [Using the chatbot (API / CLI / UI)](#11-using-the-chatbot)
 12. [Production hardening](#12-production-hardening)
 13. [Deploy on a cloud VM (end-to-end example)](#13-deploy-on-a-cloud-vm)
-14. [Operations (logs, updates, backup, scaling)](#14-operations)
+14. [Deploy to AKS (Kubernetes)](#deploy-to-aks-kubernetes)
+15. [Operations (logs, updates, backup, scaling)](#14-operations)
 15. [Troubleshooting](#15-troubleshooting)
 
 ---
@@ -430,6 +431,61 @@ Bind the app ports to localhost only (so they're reachable only via nginx) by
 editing the published ports in the compose file to `127.0.0.1:8000:8000` etc.
 
 The stack auto-restarts on reboot (`restart: unless-stopped`).
+
+---
+
+## Deploy to AKS (Kubernetes)
+
+Run the app on Azure Kubernetes Service, published automatically by the CD
+workflow. Manifests live in [`k8s/`](k8s/); the cluster is defined in
+[`terraform/`](terraform/).
+
+### One-time, per cluster
+
+```bash
+# 1. Provision a cost-effective AKS cluster (see terraform/README.md)
+cd terraform && terraform init && terraform apply
+az aks get-credentials -g rag-chatbot-rg -n rag-chatbot-aks --overwrite-existing
+
+# 2. Install the ingress controller + cert-manager
+kubectl apply -f https://raw.githubusercontent.com/kubernetes/ingress-nginx/controller-v1.11.3/deploy/static/provider/cloud/deploy.yaml
+kubectl apply -f https://github.com/cert-manager/cert-manager/releases/download/v1.16.2/cert-manager.yaml
+kubectl -n ingress-nginx wait --for=condition=available deploy/ingress-nginx-controller --timeout=240s
+kubectl -n cert-manager wait --for=condition=available deploy --all --timeout=240s
+
+# 3. cert-manager issuers (set your email first)
+sed 's/<YOUR_EMAIL>/you@example.com/' k8s/setup/cert-manager-issuers.yaml | kubectl apply -f -
+
+# 4. Point DNS at the ingress IP, and (optionally) automate it — full TLS/DNS
+#    details in k8s/INGRESS-SETUP.md
+kubectl -n ingress-nginx get svc ingress-nginx-controller   # note EXTERNAL-IP
+```
+
+### Every deploy (automated by CD)
+
+Once the cluster exists and the CD secrets are set (`AZURE_CREDENTIALS`,
+`ANTHROPIC_API_KEY`, `APP_API_KEYS` — see [§8](#8-cicd-setup)), a push to `main`
+runs CI then [`cd.yml`](.github/workflows/cd.yml), which:
+
+1. logs into Azure and fetches AKS credentials,
+2. syncs the `rag-secrets` Secret from your GitHub secrets,
+3. `kubectl apply -f k8s/` and rolls out the new image.
+
+Trigger manually anytime from **Actions → CD (AKS) → Run workflow**.
+
+### Verify & use
+
+```bash
+kubectl -n rag-chatbot get pods                       # all Running
+kubectl -n rag-chatbot get certificate rag-tls        # READY=True (trusted TLS)
+
+# UI:  https://rag.<your-domain>      API: https://api.<your-domain>
+curl -X POST https://api.<your-domain>/v1/upload \
+  -H "X-API-Key: <APP_API_KEYS value>" -F "file=@yourdoc.pdf"
+```
+
+Data persists across pod restarts: Qdrant vectors on its PVC, uploaded files on
+the API's `rag-data` PVC.
 
 ---
 
